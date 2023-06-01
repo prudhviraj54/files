@@ -1,0 +1,76 @@
+from pyspark.sql import SparkSession
+sc = SparkSession.builder.appName('example_spark').getOrCreate()
+
+# creating a dataframe
+data = [
+    ("test1.jpg", "Payment made to cashier with cash of $2000.00", "para",30.32), 
+    ("test2.jpg", "Transaction was done using cash", "mil",10.2),
+    ("test3.jpg","Used debit card for payment","bil",27.9)
+]
+headers = ("fil_name", "content", "page_label","hand")
+df = sc.createDataFrame(data, headers)
+
+from pyspark.sql.functions import col, lower
+cash_payment_invoice = []
+keywords = ['cash']
+payment_keywords = ['cash', 'money order', 'credit', 'visa', 'amex', 'debit', 'cheque', 'charge', 'mc', 'db', 'check', 'credit card', 'refund', 'roa', 'grant', 'master', 'cq']
+
+df = df.withColumn("paid_by_cash", lower(col("content")).contains("cash") & ~(lower(col("content")).contains("cashier")))
+df.show()
+
+def has_dollar_symbol(read_res):
+        def check_no_dollar_symbol(content):
+            return '$' not in content
+
+        check_no_dollar_symbol_udf = udf(check_no_dollar_symbol, BooleanType())
+        read_res = read_res.withColumn('no_dollar_symbol', check_no_dollar_symbol_udf('content'))
+
+        return read_res
+df3 =  has_dollar_symbol(df)
+df3.show()
+
+
+from pyspark.sql import functions as F
+from pyspark.sql.types import IntegerType
+def handwritten_check(read_res, threshold):
+    read_res = read_res.withColumn('above_handwritten_threshold', F.lit(False))
+    #check_threshold = F.udf(lambda percentage: percentage > threshold, returnType=BooleanType())
+    def check_threshold(hand,threshold):
+      return hand>threshold
+    #check_threshold = F.udf(lambda percentage: int(percentage > threshold), returnType=IntegerType())
+    read_res = read_res.withColumn('hand', read_res['hand'].cast('float'))
+    read_res = read_res.withColumn('above_handwritten_threshold', check_threshold(read_res['hand'],threshold))
+    return read_res
+df4 = handwritten_check(df,15)
+df4.show()
+
+from pyspark.sql.functions import udf
+def get_payment(read_res):
+  #payment_amount = []
+  #payment_keywords = ['total', 'payment due', 'payment owing', 'amount', 'payment amount', 'patient pays','fee charged','payment received']
+
+  #for row in read_res.iterrows():
+  amount = "No Amount"
+  text = read_res.lower()
+  potential_amount = re.findall(r'[$][\d{1,3},?]*\d{1,3}\.\d{2}', text)
+      # print(potential_amount)
+  if potential_amount:
+    amount_list = [float(i[1:].replace(",","")) for i in potential_amount]
+    amount = max(amount_list)
+  if not amount:
+    potential_amount_2 = re.findall(r'[\d{1,3},?]*\d{1,3}\.\d{2}', text)
+    if potential_amount_2:
+      amount_list = [float(i.replace(",","")) for i in potential_amount_2]
+      amount = max(amount_list)
+  #payment_amount.append(amount)
+  #if amount is not None:
+    #return amount
+  return amount
+            # print(amount)
+
+        #read_res['payment_amount'] = payment_amount
+
+        #return read_res
+udf_get_pay = udf(get_payment,StringType())
+df5 = df.withColumn("payment_amount",udf_get_pay(df['content']))
+df5.show()
