@@ -74,3 +74,125 @@ def get_payment(read_res):
 udf_get_pay = udf(get_payment,StringType())
 df5 = df.withColumn("payment_amount",udf_get_pay(df['content']))
 df5.show()
+
+def get_reg_num(read_res):
+    read_res = read_res.withColumn("register_num", lit(None))
+    invoice_num_keywords = ['phn/reg', 'reg#', 'reg #', 'register#', 'register #', 'register number', 'reg no', 'register no']
+    Reg = "No Register Num"
+    def extract_register_num(text):
+        text = text.lower()
+        text = text.replace('.', ' ')
+        text = text.replace(',', ' ')
+        text = text.replace(':', ' ')
+
+        for keyword in invoice_num_keywords:
+            idx = text.find(keyword)
+            if idx == -1:
+                continue
+            potential_invoice_num = text[idx: idx+25] if idx+25 < len(text) else text[idx:]
+
+            text_list = potential_invoice_num.split(' ')
+            for segment in text_list:
+                if any(c.isdigit() for c in segment):
+                    segment = segment.replace('#', '')
+                    segment = segment.replace(' ', '')
+                    return segment
+        return Reg
+
+    extract_register_num_udf = udf(extract_register_num, StringType())
+
+    read_res = read_res.withColumn("register_num", extract_register_num_udf(col("content")))
+
+    return read_res
+df6 = get_reg_num(df)
+df6.show()
+
+def _if_repeat_num(segment):
+    regex = r'([1-9]+)\1\1\1+'
+    search_res = re.search(regex,segment)
+    return True if search_res else False
+
+if_repeat_num_udf = udf(_if_repeat_num, BooleanType())
+#df7 = df.withColumn("has_rpeat_num",if_repeat_num_udf(col("segment")) )
+#df7.show()
+
+def _if_single_num(self,segment:str):
+    return True if segment.isnumeric() and len(segment)==1 else False
+#df8 = df.withColumn("Singlet_num",_if_single_num(col("segment")) )
+#df8.show()   
+
+def _if_consecutive_num(self,segment:str):
+        # Get all 2 or more consecutive Numbers
+        lstNumbers = re.findall(r'\d{4}', segment)
+        # Sort and convert list to Set to avoid duplicates
+        setValues = set(sorted(lstNumbers))
+        lstValues = list(setValues)
+        for num in lstValues:
+            if (str(num) in '0123456789'):
+                return True
+
+        return False
+#df9 = df.withColumn("consecutive_num",_if_consecutive_num(col("segment")) )
+#df9.show()
+
+ def invoice_num_check(read_res):
+    invalid_invoice_nbr_udf = udf(lambda segment: if_single_num(segment) or if_repeat_num(segment) or if_consecutive_num(segment), BooleanType())
+    possible_invoice_nbr_udf = udf(lambda segment: segment if (if_single_num(segment) or if_repeat_num(segment) or if_consecutive_num(segment)) else None, StringType())
+
+    invoice_num_keywords = ['invoice number', 'invoice #', 'invoice num', 'invoice#']
+    read_res = read_res.withColumn('invalid_invoice_nbr', col('invalid_invoice_nbr').cast(BooleanType()))
+    read_res = read_res.withColumn('possible_invoice_nbr', col('possible_invoice_nbr').cast(StringType()))
+
+    for keyword in invoice_num_keywords:
+        read_res = read_res.withColumn('idx', col('content').lower().indexOf(keyword))
+        read_res = read_res.withColumn('idx', col('idx') + 1)
+        read_res = read_res.withColumn('potential_invoice_num', col('content').substr(col('idx'), 25))
+        read_res = read_res.withColumn('potential_invoice_num', col('potential_invoice_num').substr(1, expr("IF(instr(potential_invoice_num, 'date') > 0, instr(potential_invoice_num, 'date')-1, length(potential_invoice_num))")))
+
+        read_res = read_res.withColumn('text_list', expr("split(potential_invoice_num, ' ')"))
+        read_res = read_res.withColumn('possible_invoice_nbr', expr("transform(text_list, segment -> IF(REGEXP_REPLACE(segment, '\\D', '') != '', IF({0}, segment, NULL), NULL))".format(invalid_invoice_nbr_udf)))
+
+        read_res = read_res.withColumn('invalid_invoice_nbr', col('invalid_invoice_nbr') | col('possible_invoice_nbr').isNotNull())
+        read_res = read_res.withColumn('possible_invoice_nbr', expr("filter(possible_invoice_nbr, segment -> segment IS NOT NULL)[0]"))
+
+    return read_res
+df10 = invoice_num_check(df)
+
+def address_check(read_res):
+    def if_valid_address(address_text):
+        regex_addr_validated = r'[a-zA-Z](\d|i|o|s)[a-zA-Z]\s?(\d|i|o|s)[a-zA-Z](\d|i|o)\s'
+        road_name = ['avenue','ave','boulevard','blvd','circle','cir','court','ct','expressway','expy','freeway','fwy','lane','ln','parkway','pky','road','rd','square','sq','street','st','driveway','dr','drive','highway','hwy']
+        province_name = ['albert','ab','british columbia','bc','manitoba','mb','new brunswick','nb','newfoundland and labrador', 'nl', 'northwest territories', 'nt', 'nova scotia', 'ns', 'nunavut', 'nu','ontario','on', 'prince edward island', 'pe', 'quebec', 'qc', 'saskatchewan', 'sk', 'yukon', 'yt']
+        exception_text = ['manulife','image']
+
+        add_regex = re.compile(regex_addr_validated)
+        search_res = re.search(add_regex, address_text)
+        
+        if search_res and any(substring in address_text for substring in road_name) and any(substring in address_text for substring in province_name):
+            return True
+        elif not any(substring in address_text for substring in exception_text):
+            return False
+        else:
+            return True
+
+    if_valid_address_udf = udf(if_valid_address, BooleanType())
+
+    read_res = read_res.withColumn('has_invalid_addr', col('has_invalid_addr').cast(BooleanType()))
+    read_res = read_res.withColumn('verified_address', col('verified_address').cast(StringType()))
+
+    invoice_num_keywords = ['address']
+    for keyword in invoice_num_keywords:
+        read_res = read_res.withColumn('idx', col('content').lower().indexOf(keyword))
+        read_res = read_res.withColumn('idx', col('idx') + 1)
+        read_res = read_res.withColumn('potential_add_text', col('content').substr(col('idx'), 80))
+        read_res = read_res.withColumn('potential_add_text', expr("IF(instr(potential_add_text, 'email address') > 0, substring(potential_add_text, 1, instr(potential_add_text, 'email address')-1), potential_add_text)"))
+
+        read_res = read_res.withColumn('has_invalid_addr', if_valid_address_udf(col('potential_add_text')) | col('has_invalid_addr'))
+
+    p = re.compile(r'\s[a-zA-Z](\d|i|o)[a-zA-Z]\s?(\d|i|o)[a-zA-Z](\d|i|o)\s')
+    read_res = read_res.withColumn('text_matches', expr("transform_all(content, x -> regexp_extract_all(x, '\\s[a-zA-Z](\\d|i|o)[a-zA-Z]\\s?(\\d|i|o)[a-zA-Z](\\d|i|o)\\s', 0))"))
+    read_res = read_res.withColumn('potential_add_text', expr("explode_outer(flatten(text_matches))"))
+    read_res = read_res.withColumn('has_invalid_addr', if_valid_address_udf(col('potential_add_text')) | col('has_invalid_addr'))
+
+    return read_res
+result_df = address_check(read_res)
