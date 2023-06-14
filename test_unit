@@ -1,0 +1,40 @@
+import unittest
+from pyspark.sql import SparkSession
+from my_module import process_data
+from rules import fraud_document_analytics
+
+class MySparkTestCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Create a SparkSession for testing
+        cls.spark = SparkSession.builder.master("local").appName("unittest").getOrCreate()
+    
+    @classmethod
+    def tearDownClass(cls):
+        # Stop the SparkSession after testing
+        cls.spark.stop()
+
+    def test_process_data(self):
+        # Define the test DataFrame
+        input_data =  [("test1.jpg", "Payment made to cashier with cash of 2000.00 ", "para",30.32), 
+                        ("test2.jpg", "Transaction was done using cash in costco", "mil",10.2),
+                            ("test3.jpg","User with register no: 58290 used debit card for payment","bil",27.9)]
+        headers = ("file_name", "content", "page_label","hand")
+        #df = sc.createDataFrame(data, headers)
+        input_df = self.spark.createDataFrame(input_data, headers)
+        
+        # Call the function to be tested
+        result_df = fraud_document_analytics.paid_by_cash(input_df)
+        
+        # Define the expected result
+        expected_data = [("test1.jpg", "Payment made to cashier with cash of 2000.00 ", "para",30.32,"Ture"), 
+                        ("test2.jpg", "Transaction was done using cash in costco", "mil",10.2,"False"),
+                            ("test3.jpg","User with register no: 58290 used debit card for payment","bil",27.9),"False"]
+        headers_exp = ("file_name", "content", "page_label","hand","paid_by_cash")
+        expected_df = self.spark.createDataFrame(expected_data, ["id", headers_exp)
+        
+        # Compare the actual and expected DataFrames
+        self.assertDataFrameEqual(result_df, expected_df)
+
+if __name__ == "__main__":
+    unittest.main()
