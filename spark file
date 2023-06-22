@@ -196,3 +196,37 @@ def address_check(read_res):
 
     return read_res
 result_df = address_check(read_res)
+def invoice_num_check(read_res):
+  read_res = read_res.withColumn("invalid_invoice_nbr", lit(False))
+  read_res = read_res.withColumn("possible_invoice_nbr", lit(None))
+
+  invoice_num_keywords = ['invoice number', 'invoice #', 'invoice num', 'invoice#']
+  invoice = "None"
+  def extract_invoice(text):
+    text = text.lower()
+
+    for keyword in invoice_num_keywords:
+        idx = text.find(keyword)
+        if idx == -1: 
+          continue
+        potential_invoice_num = text[idx: idx+25] if idx+25 < len(text) else text[idx:]
+        if potential_invoice_num.find('date')>-1: 
+            potential_invoice_num = potential_invoice_num[:potential_invoice_num.find('date')]
+
+        text_list = potential_invoice_num.split(' ')
+        for segment in text_list:
+            if any(c.isdigit() for c in segment):
+                if if_single_num(segment):
+                    return segment
+                elif if_repeat_num(segment): 
+                    return segment
+                elif if_consecutive_num(segment):
+                    return segment
+                else: 
+                    #read_res.loc[row[0], 'possible_invoice_nbr'] = segment
+                  return segment
+    return invoice
+						
+  extract_invoice_udf = udf(extract_invoice, StringType())
+  read_res = read_res.withColumn("possible_invoice_nbr", extract_invoice_udf(col("content")))
+  return read_res
