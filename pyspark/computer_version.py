@@ -1,0 +1,48 @@
+from pyspark.sql.functions import udf
+from pyspark.sql.types import ArrayType, StringType
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder.getOrCreate()
+
+class ComputerVersionRules:
+  def __init__(self, input_path, local_output_path):
+    self.input_path = input_path
+    self.local_output_path = local_output_path
+
+def detect_stamp(self, date_name, batch_name, batch_path):
+  detected_stamp_files = []
+  orb = cv2.SIFT_create()
+  train_image = cv2.imread('Capture.PNG')
+  train_image = cv2.cvtColor(train_image, cv2.COLOR_BGR2RGB)
+  train_image_blur = cv2.GaussianBlur(train_image.copy(), (15, 15), 0)
+  kp1, des1 = orb.detectAndCompute(train_image_blur, None)
+        
+  def detect_stamp_fn(filename):
+    if filename.endswith('tif') or filename.endswith('.jpg') or filename.endswith('.pdf'):
+      img = cv2.imread(batch_path + filename)
+      try:
+        img_to_match = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img_to_match_blur = cv2.GaussianBlur(img_to_match.copy(), (21, 21), cv2.BORDER_DEFAULT)
+        kp2, des2 = orb.detectAndCompute(img_to_match_blur, None)
+        if des2 is None:
+          return None
+          bf = cv2.BFMatcher()
+          matches = bf.knnMatch(des1, des2, k=2)
+          good = []
+          if len(matches[0]) != 2:
+           return None
+          match_distance = 0.75
+          for m, n in matches:
+            if m.distance < match_distance * n.distance:
+              good.append([m])
+          if len(good) > 5:
+            return date_name + '_' + batch_name + '_' + filename
+      except:
+          return None
+          
+    detect_stamp_udf = udf(detect_stamp_fn, StringType())
+    df = spark.createDataFrame([(filename,) for filename in os.listdir(batch_path)], ['filename'])
+    df = df.withColumn('detected_stamp_file', detect_stamp_udf(df['filename']))
+    detected_stamp_files = df.filter(df['detected_stamp_file'].isNotNull()).select('detected_stamp_file').collect()
+    detected_stamp_files = [row[0] for row in detected_stamp_files]
+    return detected_stamp_files
