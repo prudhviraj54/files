@@ -278,7 +278,43 @@ class doc_read:
         df['has_stamp'] = if_stamp
         return df
 
+################################################################################################################
+##updated code with minimal loops in read_document
+   def read_document(date_name, batch_name, batch_path):
+    endpoint = "https://canadacentral.api.cognitive.microsoft.com/"
+    key = ""
+    credential = AzureKeyCredential(key)
+    document_analysis_client = DocumentAnalysisClient(endpoint, credential)
+    out_df_rows = []
 
+    def process_file(file_path):
+        word_info = {}
+        try:
+            with open(file_path, 'rb') as file:
+                file_content = file.read()
+                poller = document_analysis_client.begin_analyze_document("prebuilt-read", document=file_content)
+            result = poller.result().content
+            if type(result) is not str:
+                result = str(result)
+            for page in poller.result().pages:
+                for word in page.words:
+                    word_info[word.content] = word.confidence
+            filename = date_name + '_' + batch_name + '_' + os.path.basename(file_path)
+            styles = poller.result().styles
+            out_df_rows.append((filename, result, word_info, styles))
+        except Exception:
+            pass
+
+    for filename in os.listdir(batch_path):
+        if filename.endswith(".jpg") or filename.endswith(".tif"):
+            file_path = os.path.join(batch_path, filename)
+            process_file(file_path)
+
+    # Convert the list of rows to a DataFrame
+    out_df = spark.createDataFrame(out_df_rows, ['file_name', 'content', 'word_confidence', 'styles'])
+    # Clean the text
+    out_df = out_df.withColumn('content', F.regexp_replace('content', '\n', ' '))
+    return out_df
 
 
 
