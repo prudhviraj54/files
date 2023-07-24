@@ -1,22 +1,21 @@
 # Pyspark code for Fraud Analytics
 
-Simple overview of use/purpose.
+Used to detect fraud claims from customers
 
 ## Description
 
-An in-depth paragraph about your project and overview of use.
+Above code can be used to detect fraud claims which are submitted by customers which may be hospitalization, mdeical bills or presections. We have accomdateded multiple checks in our code which can effectively identify the claim which are fraud or unauthoriised.
 
 ## Getting Started
 
 ### Dependencies
 
-* Describe any prerequisites, libraries, OS version, etc., needed before installing program.
-* ex. Windows 10
+* Libraries included in requirements file need to be installed.
+
 
 ### Installing
 
-* How/where to download your program
-* Any modifications needed to be made to files/folders
+* pip install -r requirements.txt
 
 ### Executing program
 
