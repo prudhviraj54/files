@@ -1,0 +1,159 @@
+import unittest
+import sys
+from pyspark.sql import SparkSession
+#from pyspark.sql.functions import lit,col,udf,lower
+from pyspark_test import assert_pyspark_df_equal
+#from my_module import process_data
+from src.Databricks.ocs_images.rules import FraudDocumentAnalytics
+
+def setUpClass(cls):
+    # Create a SparkSession for testing
+    cls.spark = SparkSession.builder.master("local").appName("unittest").getOrCreate()
+        
+def tearDownClass(cls):
+    # Stop the SparkSession after testing
+    cls.spark.stop()
+
+def test_process_data(self):
+    # Define the test DataFrame
+    input_data =  [("test1.jpg", "Payment made with cash of 2000.00 ", "para",30.32), 
+                    ("test2.jpg", "Transaction was done using credit card in costco", "mil",10.2),
+                        ("test3.jpg","User with register no: 58290 used debit card for payment","bil",27.9)]
+    headers = ("file_name", "content", "page_label","hand")
+    #df = sc.createDataFrame(data, headers)
+    input_df = self.spark.createDataFrame(input_data, headers)
+    
+    # Call the function to be tested
+    result_df = FraudDocumentAnalytics.paid_by_cash(self,input_df)
+    res_col = len(result_df.columns)
+    # Define the expected result
+    expected_data = [("test1.jpg", "Payment made with cash of 2000.00 ", "para",30.32,True), 
+                    ("test2.jpg", "Transaction was done using credit card in costco", "mil",10.2,False),
+                        ("test3.jpg","User with register no: 58290 used debit card for payment","bil",27.9,False)]
+    headers_exp = ("file_name", "content", "page_label","hand","paid_by_cash")
+    expected_df = self.spark.createDataFrame(expected_data, headers_exp)
+    exp_col=5
+    # Compare the actual and expected DataFrames
+    #self.assertEqual(res_col, exp_col)
+    #self.assertEquals(sorted(expected_df.collect()) == sorted(result_df.collect()))
+    assert_pyspark_df_equal(result_df,expected_df)
+    
+def test_has_dollar_symbol(self):
+    # Define the test DataFrame
+    input_data =  [("test4.jpg", "Payment made to cashier with cash of $3000.00 ", "para",30.32), 
+                    ("test5.jpg", "Transaction was done using cash in ikea", "mil",10.2),
+                        ("test6.jpg","User with register no: 58291 used debit card for payment","bil",27.9)]
+    headers = ("file_name", "content", "page_label","hand")
+    #df = sc.createDataFrame(data, headers)
+    input_df = self.spark.createDataFrame(input_data, headers)
+    
+    # Call the function to be tested
+    result_df = FraudDocumentAnalytics.has_dollar_symbol(self,input_df)
+    
+    # Define the expected result
+    expected_data = [("test4.jpg", "Payment made to cashier with cash of $3000.00 ", "para",30.32,False), 
+                    ("test5.jpg", "Transaction was done using cash in ikea", "mil",10.2,True),
+                        ("test6.jpg","User with register no: 58291 used debit card for payment","bil",27.9,True)]
+    headers_exp = ("file_name", "content", "page_label","hand","no_dollar_symbol")
+    expected_df = self.spark.createDataFrame(expected_data, headers_exp)
+    
+    # Compare the actual and expected DataFrames
+    #self.assertDataFrameEqual(result_df, expected_df)
+    #assert sorted(expected_df.collect()) == sorted(result_df.collect())
+    assert_pyspark_df_equal(result_df,expected_df)
+        
+def test_handwritten_check(self):
+    # Define the test DataFrame
+    input_data =  [("test7.jpg", "Payment made to cashier with cash of $2050.00 ", "para",30.32), 
+                    ("test8.jpg", "Transaction was done using cash in metro", "mil",10.2),
+                        ("test9.jpg","User with register no: 58292 used debit card for payment","bil",27.9)]
+    headers = ("file_name", "content", "page_label","handwritten_percentage")
+    #df = sc.createDataFrame(data, headers)
+    input_df = self.spark.createDataFrame(input_data, headers)
+    
+    # Call the function to be tested
+    result_df = FraudDocumentAnalytics.handwritten_check(self,input_df,15)
+    
+    # Define the expected result
+    expected_data = [("test7.jpg", "Payment made to cashier with cash of $2050.00 ", "para",30.32,True), 
+                    ("test8.jpg", "Transaction was done using cash in metro", "mil",10.2,False),
+                        ("test9.jpg","User with register no: 58292 used debit card for payment","bil",27.9,True)]
+    headers_exp = ("file_name", "content", "page_label","handwritten_percentage","above_handwritten_threshold")
+    expected_df = self.spark.createDataFrame(expected_data, headers_exp)
+    
+    # Compare the actual and expected DataFrames
+    #self.assertDataFrameEqual(result_df, expected_df)
+    #assert sorted(expected_df.collect()) == sorted(result_df.collect())
+    assert_pyspark_df_equal(result_df,expected_df)
+        
+def test_get_reg_num(self):
+    # Define the test DataFrame
+    input_data =  [("test10.jpg", "Payment made to cashier with cash of $2100.00 ", "para",30.32), 
+                    ("test11.jpg", "Transaction was done using cash in walmart", "mil",10.2),
+                        ("test12.jpg","User with register no:58293 used debit card for payment","bil",27.9)]
+    headers = ("file_name", "content", "page_label","hand")
+    #df = sc.createDataFrame(data, headers)
+    input_df = self.spark.createDataFrame(input_data, headers)
+    
+    # Call the function to be tested
+    result_df = FraudDocumentAnalytics.get_reg_num(self,input_df)
+    
+    # Define the expected result
+    expected_data = [("test10.jpg", "Payment made to cashier with cash of $2100.00 ", "para",30.32,"No Register Num"), 
+                    ("test11.jpg", "Transaction was done using cash in walmart", "mil",10.2,"No Register Num"),
+                        ("test12.jpg","User with register no:58293 used debit card for payment","bil",27.9,58293)]
+    headers_exp = ("file_name", "content", "page_label","hand","register_num")
+    expected_df = self.spark.createDataFrame(expected_data, headers_exp)
+    
+    # Compare the actual and expected DataFrames
+    #self.assertDataFrameEqual(result_df, expected_df)
+    #assert sorted(expected_df.collect()) == sorted(result_df.collect())
+    assert_pyspark_df_equal(result_df,expected_df)
+        
+def test_get_payment(self):
+    # Define the test DataFrame
+    input_data =  [("testa.jpg", "Payment made to cashier with cash of $2500.00 ", "para",30.32), 
+                    ("testb.jpg", "Transaction was done using cash in freshco", "mil",10.2),
+                        ("testc.jpg","User with register no:58294 used debit card for payment","bil",27.9)]
+    headers = ("file_name", "content", "page_label","hand")
+    #df = sc.createDataFrame(data, headers)
+    input_df = self.spark.createDataFrame(input_data, headers)
+    
+    # Call the function to be tested
+    result_df = FraudDocumentAnalytics.get_payment(self,input_df)
+    
+    # Define the expected result
+    expected_data = [("testa.jpg", "payment made to cashier with cash of $2500.00 ", "para",30.32,2500.0), 
+                    ("testb.jpg", "transaction was done using cash in freshco", "mil",10.2,"No Amount"),
+                        ("testc.jpg","user with register no:58294 used debit card for payment","bil",27.9,"No Amount")]
+    headers_exp = ("file_name", "content", "page_label","hand","payment_amount")
+    expected_df = self.spark.createDataFrame(expected_data, headers_exp)
+    
+    # Compare the actual and expected DataFrames
+    #self.assertDataFrameEqual(result_df, expected_df)
+    #assert sorted(expected_df.collect()) == sorted(result_df.collect())
+    assert_pyspark_df_equal(result_df,expected_df)
+        
+def test_invoice_check(self):
+    # Define the test DataFrame
+    input_data =  [("testd.jpg", "Payment made to cashier with cash of $2600.00 ", "para",30.32), 
+                    ("teste.jpg", "Transaction was done using cash in nofrills invoice# 76190", "mil",10.2),
+                        ("testf.jpg","User with register no:58295 used debit card for payment","bil",27.9)]
+    headers = ("file_name", "content", "page_label","hand")
+    #df = sc.createDataFrame(data, headers)
+    input_df = self.spark.createDataFrame(input_data, headers)
+    
+    # Call the function to be tested
+    result_df = FraudDocumentAnalytics.invoice_num_check(self,input_df)
+    
+    # Define the expected result
+    expected_data = [("testd.jpg", "Payment made to cashier with cash of $2600.00 ", "para",30.32,False,"None"), 
+                    ("teste.jpg", "Transaction was done using cash in nofrills invoice# 76190", "mil",10.2,False,76190),
+                        ("testf.jpg","User with register no:58295 used debit card for payment","bil",27.9,False,"None")]
+    headers_exp = ("file_name", "content", "page_label","hand","invalid_invoice_nbr","possible_invoice_nbr")
+    expected_df = self.spark.createDataFrame(expected_data, headers_exp)
+    
+    # Compare the actual and expected DataFrames
+    #self.assertDataFrameEqual(result_df, expected_df)
+    #assert sorted(expected_df.collect()) == sorted(result_df.collect())
+    assert_pyspark_df_equal(result_df,expected_df)
