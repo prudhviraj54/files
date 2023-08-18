@@ -103,5 +103,85 @@ class MySparkTestCase(unittest.TestCase):
         # Compare the actual and expected DataFrames
         self.assertDataFrameEqual(result_df, expected_df)
 
+    ############
+    #for form recognizer
+
+    def test_check_stamp(self):
+        # Create a test DataFrame
+        data = [
+            ('file1.txt', 'Some content'),
+            ('file2.txt', 'Another content with costco'),
+            ('file3.txt', 'Yet another content'),
+        ]
+        schema = ['file_name', 'content']
+        test_df = self.spark.createDataFrame(data, schema)
+
+        # Define the list of files to check
+        files_list = ['file1.txt', 'file2.txt']
+
+        # Call the function to test
+        result_df = check_stamp(test_df, files_list)
+
+        # Assert the results
+        expected_data = [
+            ('file1.txt', 'Some content', False),
+            ('file2.txt', 'Another content with costco', True),
+            ('file3.txt', 'Yet another content', False),
+        ]
+        expected_schema = ['file_name', 'content', 'has_stamp']
+        expected_df = self.spark.createDataFrame(expected_data, expected_schema)
+
+        # Collect and compare the actual and expected DataFrames
+        actual_rows = result_df.orderBy('file_name').collect()
+        expected_rows = expected_df.orderBy('file_name').collect()
+
+        for actual, expected in zip(actual_rows, expected_rows):
+            self.assertEqual(actual, expected)
+
+####another test
+    def test_handwritten_percentage(self):
+        # Create a test DataFrame schema
+        schema = StructType([
+            StructField('batch_name', StringType(), False),
+            StructField('styles', ArrayType(StructType([
+                StructField('spans', ArrayType(StructType([
+                    StructField('length', DoubleType(), False)
+                ])))
+            ]))),
+            StructField('content', StringType(), False)
+        ])
+
+        # Create test data
+        data = [
+            ('batch1', [{'spans': [{'length': 5.0}, {'length': 7.0}]}, {'spans': [{'length': 3.0}]}], 'Handwritten content 1']),
+            ('batch2', None, 'Typed content 1'),
+            ('batch3', [{'spans': [{'length': 10.0}]}], 'Handwritten content 2'),
+        ]
+        test_df = self.spark.createDataFrame(data, schema)
+
+        # Call the function to test
+        result_df = handwritten_per(test_df['batch_name'], test_df)
+
+        # Assert the results
+        expected_data = [
+            ('batch1', [{'spans': [{'length': 5.0}, {'length': 7.0}]}, {'spans': [{'length': 3.0}]}], 'Handwritten content 1', 0.348),
+            ('batch2', None, 'Typed content 1', 0.0),
+            ('batch3', [{'spans': [{'length': 10.0}]}], 'Handwritten content 2', 0.909),
+        ]
+        expected_schema = schema.add(StructField('handwritten_percentage', DoubleType(), False))
+        expected_df = self.spark.createDataFrame(expected_data, expected_schema)
+
+        # Collect and compare the actual and expected DataFrames
+        actual_rows = result_df.orderBy('batch_name').collect()
+        expected_rows = expected_df.orderBy('batch_name').collect()
+
+        for actual, expected in zip(actual_rows, expected_rows):
+            self.assertEqual(actual, expected)
+
+if __name__ == '__main__':
+    unittest.main()
+
+
+
 if __name__ == "__main__":
     unittest.main()
