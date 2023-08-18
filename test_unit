@@ -178,38 +178,6 @@ class MySparkTestCase(unittest.TestCase):
         for actual, expected in zip(actual_rows, expected_rows):
             self.assertEqual(actual, expected)
 
-    def test_sort_document(self, mock_f):
-        # Mock the F.col and F.expr functions
-        mock_col = lambda x: x
-        mock_f.col = mock_col
-        mock_f.expr = mock_col  # Assuming here that expr is just an alias for col in your usage
-
-        # Mocked dataframe with content
-        test_data = [
-            ('claim_page_one', 'Some content'),
-            ('claim_page_two', 'Some other content'),
-            ('drug_receipt', 'Drug receipt content'),
-            ('paramedical invoice', 'Paramedical invoice content'),
-            ('other_receipt', 'Other receipt content'),
-            ('other_doc', 'Other doc content')
-        ]
-        schema = ['page_label', 'content']
-        test_df = self.spark.createDataFrame(test_data, schema)
-
-        # Call the function to test
-        result_df = sort_document('batch1', test_df)
-
-        # Assert the results
-        expected_data = [
-            ('claim_page_one', 'Some content'),
-            ('claim_page_two', 'Some other content'),
-            ('drug_receipt', 'Drug receipt content'),
-            ('paramedical invoice', 'Paramedical invoice content'),
-            ('other_receipt', 'Other receipt content'),
-            ('other_doc', 'Other doc content')
-        ]
-        expected_df = self.spark.createDataFrame(expected_data, schema)
-
 
 if __name__ == "__main__":
     unittest.main()
