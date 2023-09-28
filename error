@@ -1,0 +1,3 @@
+'cv2.error: OpenCV(4.8.0) /io/opencv/modules/imgproc/src/color.cpp:182: error: (-215:Assertion failed) !_src.empty() in function 'cvtColor''. Full traceback below:
+org.apache.spark.SparkException: Job aborted due to stage failure: Task 0 in stage 43729.0 failed 4 times, most recent failure: Lost task 0.3 in stage 43729.0 (TID 376954) (10.56.39.34 executor 0): org.apache.spark.api.python.PythonException: 'cv2.error: OpenCV(4.8.0) /io/opencv/modules/imgproc/src/color.cpp:182: error: (-215:Assertion failed) !_src.empty() in function 'cvtColor''. Full traceback below:
+Traceback (most recent call last):
