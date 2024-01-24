@@ -1,0 +1,93 @@
+pip install pyodbc azure-storage-blob
+
+
+import pyodbc
+from azure.storage.blob import BlobServiceClient, ContentSettings
+
+# Define SQL Server connection parameters
+server = 'your_server'
+database = 'your_database'
+username = 'your_username'
+password = 'your_password'
+driver = '{ODBC Driver 17 for SQL Server}'
+connection_string = f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}'
+
+# Connect to SQL Server
+try:
+    conn = pyodbc.connect(connection_string)
+    cursor = conn.cursor()
+
+    # Example: Execute SQL query to fetch data
+    query = 'SELECT * FROM YourTable'
+    cursor.execute(query)
+    rows = cursor.fetchall()
+
+    # Example: Save fetched data to a CSV file
+    csv_filename = 'output.csv'
+    with open(csv_filename, 'w') as csv_file:
+        for row in rows:
+            csv_file.write(','.join(map(str, row)) + '\n')
+
+    # Example: Upload the CSV file to Azure Storage
+    azure_storage_connection_string = 'your_azure_storage_connection_string'
+    container_name = 'your_container'
+    blob_service_client = BlobServiceClient.from_connection_string(azure_storage_connection_string)
+    blob_client = blob_service_client.get_blob_client(container=container_name, blob=csv_filename)
+
+    with open(csv_filename, 'rb') as data:
+        blob_client.upload_blob(data, content_settings=ContentSettings(content_type='text/csv'))
+
+    print(f'Data uploaded to Azure Storage: {blob_client.url}')
+
+except Exception as e:
+    print(f"Error: {str(e)}")
+
+finally:
+    # Close SQL Server connection
+    if 'cursor' in locals():
+        cursor.close()
+    if 'conn' in locals():
+        conn.close()
+
+####################################################################
+from exchangelib import Credentials, Account, DELEGATE
+import pandas as pd
+import time
+
+def extract_emails(account):
+    emails_data = []
+    for item in account.inbox.filter(subject__contains='Orders', is_read=False).order_by('-datetime_received'):
+        emails_data.append({
+            'Subject': item.subject,
+            'Sender': item.sender.email_address,
+            'Received Time': item.datetime_received,
+            'Body': item.text_body,
+        })
+        item.is_read = True  # Mark the email as read to avoid processing it again
+
+    return emails_data
+
+def main():
+    outlook_email = 'your_email@example.com'
+    outlook_password = 'your_password'
+
+    credentials = Credentials(outlook_email, outlook_password)
+    account = Account(outlook_email, credentials=credentials, autodiscover=True, access_type=DELEGATE)
+
+    while True:
+        # Extract and process new emails
+        emails_data = extract_emails(account)
+
+        if emails_data:
+            # Create a DataFrame
+            df = pd.DataFrame(emails_data)
+
+            # Save to Excel
+            df.to_excel('outlook_emails.xlsx', index=False)
+            print("New emails processed. Excel file updated.")
+
+        # Wait for a period before checking for new emails again
+        time.sleep(60)  # Check every 60 seconds
+
+if __name__ == "__main__":
+    main()
