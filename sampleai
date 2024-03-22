@@ -1,0 +1,41 @@
+with APIMOpenAI("https://api.aa.example.sample.some/int/ddl/aoai") as api:
+    INSTRUCTIONS = """
+    Analyse the provided emails and do the following:
+    1. Classify the provided emails.
+    2. Whether the request is urgent.
+    3. Get the policy/plan number being discussed in this email.
+    4. Who is the policy Holder?
+    """
+
+    OUTPUT_FORMAT = """
+Your output must be in valid json format.
+{
+    "class": "", # can be one of "Billing & Premium, Coverage & Eligibility, Address Change, Assignment / Ownership Change"
+    "policy_number": "", # Usually starts with LH or AF followed by the a numeric number
+    "policy_holder": "", # Usually the name of the person who holds the policy.
+    "is_urgent": false, # true or false based on whether customer is either mentioned the request is urgent in subject or the email body, or they mentioned they have contacted us more than 2 times or if they mention escallations. 
+    "Policy type": If the policy_number starts with 443, 444, 445 or 446, it is an inquiry for life and living benefits, and if the plan number is 1777MP or 1777MO the inquiry is for health and dental.
+    
+}
+    """
+    response = api.completion([
+        {
+            "role": "system",
+            "content": f"{INSTRUCTIONS}\n{OUTPUT_FORMAT}"
+        },
+        {
+            "role": "user",
+            "content": """
+Hi Team,
+
+Requesting your kind assistance. Any update regarding the request below?
+
+Uziel M. Ramos
+Customer Service Professional, Affinity Markets Life Insurance
+E Uziel_Ramos@manulife.ca
+
+
+        }
+    ])
+
+    print(response)
