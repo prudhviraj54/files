@@ -1,0 +1,363 @@
+import re
+from datetime import datetime
+from statistics import mode
+from helpers.form_recognizer_helper import *
+
+
+def get_doc_info(encoded_img):
+    poller = get_form_recognizer("prebuilt-read", encoded_img)
+    doc_info = {}
+    word_info = {}
+    doc_info["content"] = str(poller.result().content).replace('\n', ' ')
+    # doc_info["styles"] = poller.result().styles
+    for page in poller.result().pages:
+        for word in page.words:
+            word_info[word.content] = word.confidence
+    doc_info["word_info"] = word_info
+
+    return doc_info
+
+
+def convert_date_format(date: str, idx: int):
+    if idx == 0:
+        d = datetime.strptime(date, '%b %d %Y').date()
+    elif idx == 1:
+        d = datetime.strptime(date, '%d %b %Y').date()
+    elif idx == 2:
+        d = datetime.strptime(date, '%m %d %Y').date()
+    elif idx == 3:
+        d = datetime.strptime(date, '%Y %m %d').date()
+    elif idx == 4:
+        date = date[:-2]+'20'+date[-2:]
+        d = datetime.strptime(date, '%d %b %Y').date()
+    else:
+        d = ''
+
+    return d
+
+
+def get_receipt_num(doc_info: object):
+
+    # Find number of DIN, date, total and patient pays (as they only appear once in one receipt), take mode to reduce noise.
+    num_din = 0
+    num_date = 0
+    num_pays = 0
+    num_total = 0
+    content = str(doc_info['content']).lower()
+    # content = content.lower() #add other data cleaning steps if required
+    content = re.sub(r'[^\w\s]', ' ', content)
+    content = re.sub(' +', ' ', content)
+
+    start = 0
+    while content.find('din', start) > -1:
+        num_din += 1
+        idx = content.find('din', start)
+        start = idx+1
+
+    start = 0
+    while content.find('pays', start) > -1 or content.find('no charge', start) > -1:
+        num_pays += 1
+        pays_idx = content.find('pays', start)
+        no_charge_idx = content.find('no charge', start)
+        if pays_idx > -1 and no_charge_idx > -1:
+            start = min(pays_idx, no_charge_idx)+1
+        elif pays_idx == -1:
+            start = no_charge_idx+1
+        else:
+            start = pays_idx + 1
+
+    start = 0
+    while content.find('total', start) > -1:
+        num_total += 1
+        total_idx = content.find('total', start)
+        start = total_idx+1
+
+    regex_date_format = [r'\w{3,4}[\s|-]\d+[,|\/]?[\s|-]?20\d{2}', r'\d+[\s|-]\w{3,4}[\s|-]20\d{2}',
+                         r'\d{2}\/\d{2}\/20\d{2}', r'20\d{2}\/\d{2}\/\d{2}', r'\d{2}-\w{3,4}-\d{2}\s']
+    for index, date_format in enumerate(regex_date_format):
+        date_match = re.findall(date_format, content)
+        for date in set(date_match):
+            date = re.sub(r'[^\w\s]', ' ', date)
+            date = re.sub(r'\s+', ' ', date)
+            date = date.strip()
+            try:
+                date = convert_date_format(date, index)
+                num_date += 1
+            except ValueError:
+                pass
+
+    return mode([num_din, num_date, num_pays, num_total])
+
+
+def find_phone(text):
+    phone_fax_pattern = r'[(]?\d{3}[)|\-|\s|\.]\s?\d{3}[\-|\s|\.]\d{4}'
+
+    phone_nbr = None
+    res = re.search(phone_fax_pattern, text)
+
+    # the first match as phone number
+    if res:
+        phone_nbr = res.group()
+        phone_nbr = re.sub(r'[^\w\s]', '', phone_nbr).replace(' ', '')
+
+    return phone_nbr
+
+
+def find_email(text):
+
+    email_pattern = r'([A-Za-z0-9]+[-_])*[A-Za-z0-9]+@[A-Za-z0-9-\s]+(\.\s*[A-Z|a-z]{2,})+'
+
+    email = None
+    email_addr = re.search(email_pattern, text)
+    if email_addr:
+        email = email_addr.group()
+
+    return email
+
+
+def get_date(text):
+    regex_date_format = [r'\w{3,9}[\s|-]\d+[,|\/]?[\s|-]?20\d{2}',r'\d+[\s|-]\w{3,9}[\s|-]20\d{2}',r'\d{1,2}[\/|-]\d{1,2}[\/|-]20\d{2}',r'20\d{2}[\/|-]\d{2}[\/|-]\d{2}', r'\d{2}-\w{3,9}-\d{2}\s',r'\w{3,9}[\.|\,|\/|\s]+\d+[\.|\,|\/|\s]+20\d{2}']
+    dates = []
+
+    for index, date_format in enumerate(regex_date_format):
+        date_match = re.findall(date_format, text)
+        for date in set(date_match):
+            date = re.sub(r'[^\w\s]', ' ', date)
+            date = re.sub(r'\s+', ' ', date)
+            date = date.strip()
+            try:
+                date = convert_date_format(date, index)
+                if date:
+                    dates.append(date)
+            except ValueError:
+                pass
+
+    dates = list(set(dates))
+    return dates
+
+
+def get_doc_class_old(doc_info):
+    # key words must be lower-case
+    drug_clinc = ['shoppers drug mart']
+    claim_form_keywords = ['group benefits retiree extended health care claim', 'group benefits extended health care claim',
+                           'group benefits medical expense claim', 'group benefits assignment of paramedical', 'the manufacturers life insurance company', 'extended health care claim']
+    claim_1_keywords = ['manulife', 'plan contract number', 'plan member certificate number', 'plan member name', 'birthday', 'plan member information', 'plan member address',
+                        'spouse', 'dependants', 'patient information', 'date of birthday', 'page 1 of 2', 'complete for all expenses', 'use one line per patient', 'prescription drug expenses']
+    claim_2_keywords = ['equipment and appliance', 'vision care expenses', 'claims confirmation', 'mailing instruction',
+                        'banking information and email address', 'page 2 of 2', 'please mail your completed', 'total amount of all receipts', 'the manufacturers life insurance']
+    drug_keywords = ['pharmacy', 'drug', 'prescription', ' din ', ' rx ', ' mfr ', ' pays ',
+                     ' dr ', 'pharmacies', ' total ', ' fee ', ' cost ', 'receipt', 'medication record']
+    other_receipt_keywords = ['receipt', 'invoice']
+
+    content = str(doc_info['content']).lower()
+    # content = content.lower() #add other data cleaning steps if required
+    content = re.sub(r'[^\w\s]', ' ', content)
+    content = re.sub(' +', ' ', content)
+    labelled = 0
+    confidence = 0
+
+    classification_res = ''
+
+    if any(word in content for word in claim_form_keywords):
+        keywords_len = len(claim_1_keywords)
+        count = 0
+        for keyword in claim_1_keywords:
+            if content.find(keyword) > -1:
+                count += 1
+        if count >= 10:
+            classification_res = 'claim_page_one'
+            labelled = 1
+            confidence = 1.00
+        elif count > 5 and count < 10:
+            classification_res = 'claim_page_one'
+            labelled = 1
+            confidence = count/10
+    # if content has three or more keywords of claim page two
+    if labelled == 0:
+        count = 0
+        keywords_len = len(claim_2_keywords)
+        for keyword in claim_2_keywords:
+            if content.find(keyword) > -1:
+                count += 1
+        if count > 5:
+            classification_res = 'claim_page_two'
+            confidence = 1.00
+            labelled = 1
+        elif count > 2 and count <= 5:
+            classification_res = 'claim_page_two'
+            confidence = 0.6 + (count-2)*0.1
+            labelled = 1
+
+    if labelled == 0:
+        count = 0
+        keywords_len = len(drug_keywords)
+        for keyword in drug_keywords:
+            if content.find(keyword) > -1:
+                count += 1
+        if content.find('official prescription receipt') > -1:
+            classification_res = 'drug_receipt'
+            confidence = 1.00
+            labelled = 1
+        elif count > 6 and content.find('claim') == -1:
+            classification_res = 'drug_receipt'
+            confidence = 1.00
+            labelled = 1
+        elif count > 3 and count <= 6 and content.find('claim') == -1:
+            classification_res = 'drug_receipt'
+            confidence = 0.5 + (count-3)*0.15
+            labelled = 1
+
+    if labelled == 0:
+        if any(word in content for word in other_receipt_keywords) and content.find('date') > -1 and content.find('claim') < 0:  # remove exception
+            classification_res = 'other_receipt'
+            labelled = 1
+            confidence = 1.00
+
+    if labelled == 0:
+        classification_res = 'other_doc'
+        confidence = 1.00
+
+    return classification_res, confidence
+
+
+def get_doc_class(doc_info: object):
+    # key words must be lower-case
+    drug_clinc = ['shoppers drug mart','pharmasave']
+    claim_form_keywords = ['group benefits retiree extended health care claim','group benefits extended health care claim', 'group benefits medical expense claim','group benefits assignment of paramedical','the manufacturers life insurance company','extended health care claim']
+    claim_1_keywords = ['manulife','plan contract number','plan member certificate number','plan member name','birthday','plan member information', 'plan member address','spouse','dependants','patient information','date of birthday','page 1 of 2','complete for all expenses','use one line per patient','prescription drug expenses', 'plan no', 'plan sponsor', 'employee name', 'mailing address']
+    claim_2_keywords = ['equipment and appliance','vision care expenses','claims confirmation','mailing instruction', 'banking information and email address','page 2 of 2','please mail your completed', 'total amount of all receipts','the manufacturers life insurance']
+    claim_form_otip = ['otip']
+    otip_claim_1_keywords = ['member basic personal information','patient information','perscription drug expenses','page 1 of 2','identification number','plan number']
+    drug_must_keywords = ['pharmacy','drug', 'pharmacies', ' din ', ' rx ']
+    drug_keywords = ['pharmacy','drug', 'prescription', ' din ', ' rx ', ' mfr ', ' pays ',' dr ','pharmacies',' total ',' fee ',' cost ','receipt','medication record',' c ', ' f ', ' t ']
+    other_receipt_keywords = ['receipt', 'invoice']
+    other_receipt_keywords_2 = ['date','service','items','payments']
+    other_receipt_exclusive_keywords = ['customer copy', 'claim']
+    health_keywords_1 = ['invoice']
+    health_keywords_2 = ['inv', 'receipt','billing','statement','estimate']
+    health_keywords_3 = ['drug','pharma','prescription',' rx ']
+    health_keywords_4 = ['customer copy']
+    health_keywords_5 = ['invoice', 'receipt']
+    payment_keywords = ['payment', 'subtotal', 'paid', 'balance', 'amount due', 'amount', 'total']
+    phys_ref_keywords = ["acupuncture", "athletic therapy", "audiolog", "chiropod", "chiroprac", "christian science", "homeopath", "kinesiolog", "massage therapy", "osteopath", "physio", "podiatr", "psychiatr", "psycholog", "psychoanal", "psychotherap", "shiatsu therap", "speech therap", "reflexolog", "eye exam", "visual training"]
+
+    content = str(doc_info['content']).replace('\n',' ').lower()
+    cleaned_content = re.sub(r'[^\w\s\.]',' ',content)
+    cleaned_content = re.sub(' +', ' ', cleaned_content)
+
+    # date_content = str(doc_info['content']).lower()
+    # date_content = re.sub(' +', ' ', date_content)
+
+    potential_phone = find_phone(cleaned_content)
+    potential_email = find_email(content)
+    potential_date = get_date(content)
+    amount_pattern = re.compile(r'[\s|$]*[\d{1,3},?]*\d{1,3}\.\d{2}')
+    potential_amount = re.findall(amount_pattern, content)
+
+    labelled = 0
+    confidence = 0
+
+    classification_res = ''
+
+    if any(word in cleaned_content for word in claim_form_keywords):
+        keywords_len = len(claim_1_keywords)
+        count = 0
+        for keyword in claim_1_keywords:
+            if content.find(keyword) > -1:
+                count += 1
+        if count >= 10:
+            classification_res = 'claim_page_one'
+            labelled = 1
+            confidence = 1.00
+        elif count > 5 and count < 10:
+            classification_res = 'claim_page_one'
+            labelled = 1
+            confidence = count/10
+
+    if labelled == 0 and any(word in cleaned_content for word in claim_form_otip):
+        count = 0
+        for keyword in otip_claim_1_keywords:
+            if cleaned_content.find(keyword) > -1:
+                count += 1
+            confidence = count/5
+            if confidence > 0.5:
+                classification_res = 'claim_page_one'
+                labelled = 1
+
+    # if content has three or more keywords of claim page two
+    if labelled == 0:
+        count = 0
+        keywords_len = len(claim_2_keywords)
+        for keyword in claim_2_keywords:
+            if content.find(keyword) > -1:
+                count += 1
+        if count > 5:
+            classification_res = 'claim_page_two'
+            confidence = 1.00
+            labelled = 1
+        elif count > 2 and count <= 5:
+            classification_res = 'claim_page_two'
+            confidence = 0.6 + (count-2)*0.1
+            labelled = 1
+
+    if labelled == 0 and any(key in cleaned_content for key in drug_must_keywords) and cleaned_content.find('customer copy')==-1:
+        count = 0
+        # make sure there is payment amount
+        pattern = re.compile(r'[\s|$]*[\d{1,3},?]*\d{1,3}\.\d{2}')
+        amount = re.search(pattern, content)
+        for keyword in drug_keywords:
+            if cleaned_content.find(keyword) > -1:
+                count += 1
+        if cleaned_content.find('official prescription receipt') > -1:
+            classification_res = 'drug_receipt'
+            confidence = 1.00
+            labelled = 1
+        elif count > 6 and cleaned_content.find('claim') == -1 and amount:
+            classification_res = 'drug_receipt'
+            confidence = 1.00
+            labelled = 1
+        elif count > 4 and count <= 6 and cleaned_content.find('claim') == -1 and amount:
+            classification_res = 'drug_receipt'
+            confidence = 0.5 + (count-4)*0.2
+            labelled = 1
+
+    if labelled == 0 and any(key in cleaned_content for key in payment_keywords) and potential_amount: 
+        if (any(key in cleaned_content for key in health_keywords_1)):
+            classification_res = 'health_receipt'
+            if potential_date and potential_email:
+                confidence = 1.00
+            elif potential_date or potential_email:
+                confidence = 0.7
+            else:
+                confidence = 0.6
+            labelled = 1
+        elif (any(key in cleaned_content for key in health_keywords_2))\
+                    and (potential_date or potential_phone or potential_email) \
+                    and not any(key in cleaned_content for key in health_keywords_4)\
+                    and not any(key in cleaned_content for key in health_keywords_3)\
+                        and cleaned_content.find(' claim ')==-1:
+            classification_res = 'health_receipt'
+            confidence = 1.00
+            labelled = 1
+        elif ((any(key in cleaned_content for key in health_keywords_2)) or (any(key in cleaned_content for key in health_keywords_1)))\
+                    and cleaned_content.find(' claim ')==-1:
+            classification_res = 'other_receipt'
+            confidence = 1.00
+            labelled = 1
+
+    if labelled == 0:
+        if (any(key in cleaned_content for key in phys_ref_keywords)) and (any(key in cleaned_content for key in health_keywords_5))\
+            and content.find('$')>-1:
+            classification_res = 'health_receipt'
+            confidence = 0.7
+            labelled = 1
+        
+    if labelled == 0:
+        if (any(key in cleaned_content for key in phys_ref_keywords)) and content.find('dr.') > -1:
+            classification_res = "physician_referral"
+            confidence = 1.00
+        else:
+            classification_res = 'supporting_doc'
+            confidence = 1.00
+
+    return classification_res, confidence
