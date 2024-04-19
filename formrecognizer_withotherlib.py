@@ -39,6 +39,7 @@ df.show(truncate=False)
 ###########      Python code          #######################################
 import pytesseract
 from PIL import Image
+from pyspark.sql import SparkSession
 
 def read_document(self, date_name, batch_name, batch_path):
     batch_name = batch_name 
@@ -63,6 +64,9 @@ def read_document(self, date_name, batch_name, batch_path):
     # Clean the text
     out_df['content'] = out_df['content'].replace(regex = '\n', value = ' ')
 
+    spark_df = spark.createDataFrame(out_df)
+
+
     print(f"Read {idx} images' text in batch {batch_name}")
-    return out_df
+    return spark_df
 
