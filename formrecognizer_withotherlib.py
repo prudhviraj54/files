@@ -34,3 +34,35 @@ batch_name = "batch1"
 batch_path = "/dbfs/path/to/images"
 df = read_documents(date_name, batch_name, batch_path)
 df.show(truncate=False)
+
+
+###########      Python code          #######################################
+import pytesseract
+from PIL import Image
+
+def read_document(self, date_name, batch_name, batch_path):
+    batch_name = batch_name 
+    out_df = pd.DataFrame(columns=['file_name','content','word_confidence'])
+    idx = 0
+
+    for filename in os.listdir(batch_path):
+        if filename.endswith((".jpg", ".tif")):
+            word_info = {}
+            file_path = os.path.join(batch_path, filename)
+            try:
+                img = Image.open(file_path)
+                result = pytesseract.image_to_string(img)
+                word_confidence = {}  # Placeholder for word confidence (Tesseract doesn't provide word confidence by default)
+                filename = date_name + "_" + batch_name + "_" + filename
+                out_df.loc[len(out_df.index)] = [filename, result, word_confidence]
+                idx += 1
+            except Exception as e:
+                print(f"Error processing {filename}: {str(e)}")
+                continue
+
+    # Clean the text
+    out_df['content'] = out_df['content'].replace(regex = '\n', value = ' ')
+
+    print(f"Read {idx} images' text in batch {batch_name}")
+    return out_df
+
